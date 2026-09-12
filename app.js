@@ -1,1078 +1,1470 @@
-/* =========================================================
-   AI NEWSROOM STUDIO
-   Production Controller
-   ========================================================= */
+```javascript id="w6m2qa"
+"use strict";
+
+/*
+=========================================================
+ AI NEWSROOM STUDIO
+ Frontend newsroom production controller
+ GitHub Pages compatible
+=========================================================
+*/
 
 const $ = (id) => document.getElementById(id);
 
 const state = {
-  videoUrl: null,
-  logoUrl: null,
-  videoFile: null,
-  logoFile: null,
+  videoUrl: "",
+  logoUrl: "",
+  videoName: "",
+  logoName: "",
   projectName: "UNTITLED BULLETIN",
+
+  headline: "",
+  presenter: "",
+  location: "",
+  script: "",
+
   analyzed: false,
   produced: false,
+
   scenes: [],
+
   theme: "classic",
   graphicsOpacity: 1,
-  logoOpacity: 0.9
+  logoOpacity: 0.9,
+
+  showLower: true,
+  showHeadline: true,
+  showTicker: true,
+  showLogo: true,
+
+  analysis: null,
+
+  mediaLoaded: false,
+  qcPassed: false
 };
+
 
 /* =========================================================
    INITIALIZATION
-   ========================================================= */
+========================================================= */
 
 document.addEventListener("DOMContentLoaded", () => {
-  initialise();
+
+  bindEvents();
+
+  updateProjectName();
+  updateStatus("READY");
+  updateStatusCard();
+
+  renderScenes();
+
+  updateGraphics();
+
 });
 
-function initialise() {
-  bindVideoControls();
-  bindMediaImport();
-  bindGraphicsControls();
-  bindTabs();
-  bindAIControls();
-  bindProjectControls();
 
-  updateClockDisplay();
-  updateGraphics();
-  updateStatus("READY");
+/* =========================================================
+   EVENT BINDINGS
+========================================================= */
+
+function bindEvents() {
+
+  /* VIDEO */
+
+  $("videoFile")?.addEventListener("change", handleVideoImport);
+
+  $("logoFile")?.addEventListener("change", handleLogoImport);
+
+
+  /* PROJECT */
+
+  $("bulletinName")?.addEventListener("input", () => {
+
+    state.projectName =
+      $("bulletinName").value.trim() ||
+      "UNTITLED BULLETIN";
+
+    updateProjectName();
+
+  });
+
+
+  /* STORY */
+
+  ["headline", "presenter", "location", "script"].forEach(id => {
+
+    $(id)?.addEventListener("input", () => {
+
+      state[id] = $(id).value;
+
+      if (id === "headline") {
+        $("screenHeadline").value = state.headline;
+      }
+
+    });
+
+  });
+
+
+  $("analyze")?.addEventListener("click", analyzeStory);
+
+
+  /* PLAYER */
+
+  $("play")?.addEventListener("click", () => {
+
+    if (!$("video").src) return;
+
+    $("video").play();
+
+  });
+
+
+  $("pause")?.addEventListener("click", () => {
+
+    $("video").pause();
+
+  });
+
+
+  $("back")?.addEventListener("click", () => {
+
+    seekRelative(-5);
+
+  });
+
+
+  $("forward")?.addEventListener("click", () => {
+
+    seekRelative(5);
+
+  });
+
+
+  $("fullscreen")?.addEventListener("click", fullscreenStage);
+
+
+  $("seek")?.addEventListener("input", () => {
+
+    const video = $("video");
+
+    if (!video.duration) return;
+
+    video.currentTime =
+      (Number($("seek").value) / 100) *
+      video.duration;
+
+  });
+
+
+  $("video")?.addEventListener("loadedmetadata", handleVideoMetadata);
+
+  $("video")?.addEventListener("timeupdate", updateTransport);
+
+  $("video")?.addEventListener("play", () => {
+    updateStatus("PLAYING");
+  });
+
+  $("video")?.addEventListener("pause", () => {
+
+    if (!$("video").ended) {
+      updateStatus("PAUSED");
+    }
+
+  });
+
+  $("video")?.addEventListener("ended", () => {
+    updateStatus("READY");
+  });
+
+
+  /* AI */
+
+  $("aiProduce")?.addEventListener("click", aiProduce);
+
+  $("apply")?.addEventListener("click", applyBroadcastLook);
+
+  $("findShots")?.addEventListener("click", findBestShots);
+
+
+  /* SAVE / RESET */
+
+  $("save")?.addEventListener("click", saveProject);
+
+  $("reset")?.addEventListener("click", resetEdits);
+
+
+  /* VISUAL CONTROLS */
+
+  $("theme")?.addEventListener("change", () => {
+
+    state.theme = $("theme").value;
+
+    applyTheme();
+
+  });
+
+
+  $("gfxOpacity")?.addEventListener("input", () => {
+
+    state.graphicsOpacity =
+      Number($("gfxOpacity").value);
+
+    updateGraphics();
+
+  });
+
+
+  $("logoOpacity")?.addEventListener("input", () => {
+
+    state.logoOpacity =
+      Number($("logoOpacity").value);
+
+    updateGraphics();
+
+  });
+
+
+  $("showLower")?.addEventListener("change", () => {
+
+    state.showLower =
+      $("showLower").checked;
+
+    updateGraphics();
+
+  });
+
+
+  $("showHeadline")?.addEventListener("change", () => {
+
+    state.showHeadline =
+      $("showHeadline").checked;
+
+    updateGraphics();
+
+  });
+
+
+  $("showTicker")?.addEventListener("change", () => {
+
+    state.showTicker =
+      $("showTicker").checked;
+
+    updateGraphics();
+
+  });
+
+
+  $("showLogo")?.addEventListener("change", () => {
+
+    state.showLogo =
+      $("showLogo").checked;
+
+    updateGraphics();
+
+  });
+
+
+  /* GRAPHICS */
+
+  ["lowerText", "lowerTitle", "screenHeadline", "ticker"]
+    .forEach(id => {
+
+      $(id)?.addEventListener("input", updateGraphics);
+
+    });
+
+
+  /* TABS */
+
+  document.querySelectorAll(".tab").forEach(button => {
+
+    button.addEventListener("click", () => {
+
+      switchTab(button.dataset.tab);
+
+    });
+
+  });
+
+
+  /* EXPORT */
+
+  $("record")?.addEventListener("click", exportBroadcast);
+
 }
+
 
 /* =========================================================
    VIDEO IMPORT
-   ========================================================= */
-
-function bindMediaImport() {
-  $("videoFile").addEventListener("change", handleVideoImport);
-  $("logoFile").addEventListener("change", handleLogoImport);
-
-  $("bulletinName").addEventListener("input", () => {
-    const value = $("bulletinName").value.trim();
-
-    state.projectName = value || "UNTITLED BULLETIN";
-    $("projectName").textContent = state.projectName;
-  });
-}
+========================================================= */
 
 function handleVideoImport(event) {
-  const file = event.target.files[0];
+
+  const file = event.target.files?.[0];
 
   if (!file) return;
 
   if (!file.type.startsWith("video/")) {
+
     alert("Please select a valid video file.");
+
     return;
+
   }
 
   if (state.videoUrl) {
+
     URL.revokeObjectURL(state.videoUrl);
+
   }
 
-  state.videoFile = file;
   state.videoUrl = URL.createObjectURL(file);
+  state.videoName = file.name;
+  state.mediaLoaded = true;
 
   const video = $("video");
 
   video.src = state.videoUrl;
-  video.style.display = "block";
-
-  $("empty").style.display = "none";
-  $("liveBadge").style.display = "block";
-
-  $("mediaStatus").textContent = "Imported";
-  $("videoClip").textContent = file.name;
-
   video.load();
 
-  video.addEventListener(
-    "loadedmetadata",
-    () => {
-      $("duration").textContent = formatTime(video.duration);
-      $("seek").value = 0;
+  $("empty").style.display = "none";
 
-      updateMediaInfo(file, video);
-      updateStatus("MEDIA READY");
-    },
-    { once: true }
-  );
+  $("videoClip").textContent =
+    file.name;
+
+  $("mediaStatus").textContent =
+    "Loaded";
+
+  $("mediaInfo").innerHTML = `
+    <div class="card">
+      <strong>${escapeHtml(file.name)}</strong>
+      <span>${formatBytes(file.size)}</span>
+      <span>${file.type || "Video"}</span>
+    </div>
+  `;
+
+  updateStatus("VIDEO LOADED");
+
+  updateStatusCard();
+
+  updateGraphics();
+
 }
 
+
+/* =========================================================
+   LOGO IMPORT
+========================================================= */
+
 function handleLogoImport(event) {
-  const file = event.target.files[0];
+
+  const file = event.target.files?.[0];
 
   if (!file) return;
 
   if (!file.type.startsWith("image/")) {
-    alert("Please select an image logo.");
+
+    alert("Please select a valid image logo.");
+
     return;
+
   }
 
   if (state.logoUrl) {
+
     URL.revokeObjectURL(state.logoUrl);
+
   }
 
-  state.logoFile = file;
   state.logoUrl = URL.createObjectURL(file);
+  state.logoName = file.name;
 
-  createLogoGraphic();
+  updateGraphics();
 
-  $("mediaStatus").textContent = "Video + Logo";
+  updateStatus("LOGO LOADED");
+
 }
 
-function updateMediaInfo(file, video) {
-  const container = $("mediaInfo");
-
-  const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-
-  container.innerHTML = `
-    <div class="mediaCard">
-      <strong>VIDEO</strong><br>
-      ${escapeHTML(file.name)}<br>
-      <small>${sizeMB} MB</small>
-    </div>
-
-    <div class="mediaCard">
-      <strong>FORMAT</strong><br>
-      ${video.videoWidth} × ${video.videoHeight}<br>
-      <small>${formatTime(video.duration)}</small>
-    </div>
-
-    <div class="mediaCard">
-      <strong>STATUS</strong><br>
-      READY<br>
-      <small>Playable</small>
-    </div>
-  `;
-}
 
 /* =========================================================
-   VIDEO CONTROLS
-   ========================================================= */
+   VIDEO METADATA
+========================================================= */
 
-function bindVideoControls() {
+function handleVideoMetadata() {
+
   const video = $("video");
 
-  $("play").addEventListener("click", () => {
-    if (!video.src) {
-      alert("Import a news video first.");
-      return;
-    }
+  $("duration").textContent =
+    formatTime(video.duration);
 
-    video.play();
-    updateStatus("PLAYING");
-  });
+  $("current").textContent =
+    "00:00";
 
-  $("pause").addEventListener("click", () => {
-    video.pause();
-    updateStatus("PAUSED");
-  });
+  $("seek").value = 0;
 
-  $("back").addEventListener("click", () => {
-    video.currentTime = Math.max(0, video.currentTime - 5);
-  });
+  updateStatusCard();
 
-  $("forward").addEventListener("click", () => {
-    video.currentTime = Math.min(
-      video.duration || 0,
-      video.currentTime + 5
-    );
-  });
-
-  $("fullscreen").addEventListener("click", () => {
-    const stage = document.querySelector(".stage");
-
-    if (!document.fullscreenElement) {
-      stage.requestFullscreen?.();
-    } else {
-      document.exitFullscreen?.();
-    }
-  });
-
-  $("seek").addEventListener("input", () => {
-    if (!video.duration) return;
-
-    video.currentTime =
-      (Number($("seek").value) / 100) * video.duration;
-  });
-
-  video.addEventListener("timeupdate", () => {
-    if (!video.duration) return;
-
-    $("seek").value =
-      (video.currentTime / video.duration) * 100;
-
-    $("current").textContent =
-      formatTime(video.currentTime);
-  });
-
-  video.addEventListener("ended", () => {
-    updateStatus("PLAYBACK COMPLETE");
-  });
 }
+
 
 /* =========================================================
-   GRAPHICS ENGINE
-   ========================================================= */
+   TRANSPORT
+========================================================= */
 
-function createLogoGraphic() {
-  let logo = document.querySelector(".broadcast-logo");
+function updateTransport() {
 
-  if (!logo) {
-    logo = document.createElement("img");
-    logo.className = "broadcast-logo";
-    $(".stage").appendChild(logo);
-  }
+  const video = $("video");
 
-  logo.src = state.logoUrl;
-  logo.style.opacity = state.logoOpacity;
-  logo.style.display = $("showLogo").checked ? "block" : "none";
+  if (!video.duration) return;
+
+  $("current").textContent =
+    formatTime(video.currentTime);
+
+  $("duration").textContent =
+    formatTime(video.duration);
+
+  $("seek").value =
+    (video.currentTime / video.duration) * 100;
+
 }
 
-function createLowerThird() {
-  let graphic = document.querySelector(".broadcast-lower-third");
 
-  if (!graphic) {
-    graphic = document.createElement("div");
-    graphic.className = "broadcast-lower-third";
+function seekRelative(seconds) {
 
-    graphic.innerHTML = `
-      <div class="name"></div>
-      <div class="title"></div>
-    `;
+  const video = $("video");
 
-    $(".stage").appendChild(graphic);
-  }
+  if (!video.duration) return;
 
-  graphic.querySelector(".name").textContent =
-    $("lowerText").value || "NEWS PRESENTER";
-
-  graphic.querySelector(".title").textContent =
-    $("lowerTitle").value || "NEWS";
-
-  graphic.style.display =
-    $("showLower").checked ? "block" : "none";
-}
-
-function createHeadline() {
-  let graphic = document.querySelector(".broadcast-headline");
-
-  if (!graphic) {
-    graphic = document.createElement("div");
-    graphic.className = "broadcast-headline";
-
-    $(".stage").appendChild(graphic);
-  }
-
-  graphic.textContent =
-    $("screenHeadline").value ||
-    $("headline").value ||
-    "LATEST NEWS";
-
-  graphic.style.display =
-    $("showHeadline").checked ? "block" : "none";
-}
-
-function createTicker() {
-  let graphic = document.querySelector(".broadcast-ticker");
-
-  if (!graphic) {
-    graphic = document.createElement("div");
-    graphic.className = "broadcast-ticker";
-
-    const span = document.createElement("span");
-
-    graphic.appendChild(span);
-    $(".stage").appendChild(graphic);
-  }
-
-  graphic.querySelector("span").textContent =
-    $("ticker").value ||
-    "LATEST NEWS • EDUCATION • COMMUNITY • SPORTS • WEATHER";
-
-  graphic.style.display =
-    $("showTicker").checked ? "flex" : "none";
-}
-
-function updateGraphics() {
-  createLowerThird();
-  createHeadline();
-  createTicker();
-
-  const opacity = Number($("gfxOpacity").value);
-
-  document
-    .querySelectorAll(
-      ".broadcast-lower-third, .broadcast-headline, .broadcast-ticker"
+  video.currentTime = Math.max(
+    0,
+    Math.min(
+      video.duration,
+      video.currentTime + seconds
     )
-    .forEach((element) => {
-      element.style.opacity = opacity;
-    });
+  );
 
-  if (state.logoUrl) {
-    createLogoGraphic();
-  }
 }
 
-function bindGraphicsControls() {
-  [
-    "lowerText",
-    "lowerTitle",
-    "screenHeadline",
-    "ticker",
-    "gfxOpacity",
-    "logoOpacity",
-    "showLower",
-    "showHeadline",
-    "showTicker",
-    "showLogo"
-  ].forEach((id) => {
-    $(id).addEventListener("input", updateGraphics);
-    $(id).addEventListener("change", updateGraphics);
-  });
-
-  $("headline").addEventListener("input", () => {
-    if (!$("screenHeadline").value) {
-      updateGraphics();
-    }
-  });
-
-  $("theme").addEventListener("change", () => {
-    state.theme = $("theme").value;
-    applyTheme(state.theme);
-  });
-}
-
-function applyTheme(theme) {
-  document.body.dataset.theme = theme;
-
-  if (theme === "dark") {
-    document.documentElement.style.setProperty(
-      "--blue",
-      "#d31e2b"
-    );
-    document.documentElement.style.setProperty(
-      "--sky",
-      "#f04444"
-    );
-  } else if (theme === "light") {
-    document.documentElement.style.setProperty(
-      "--blue",
-      "#086cb5"
-    );
-    document.documentElement.style.setProperty(
-      "--sky",
-      "#159ad6"
-    );
-  } else {
-    document.documentElement.style.setProperty(
-      "--blue",
-      "#1688d4"
-    );
-    document.documentElement.style.setProperty(
-      "--sky",
-      "#35b8f4"
-    );
-  }
-}
 
 /* =========================================================
-   TABS
-   ========================================================= */
+   FULLSCREEN
+========================================================= */
 
-function bindTabs() {
-  document.querySelectorAll(".tab").forEach((tab) => {
-    tab.addEventListener("click", () => {
-      document.querySelectorAll(".tab").forEach((t) =>
-        t.classList.remove("active")
-      );
+function fullscreenStage() {
 
-      document.querySelectorAll(".tabPanel").forEach((panel) =>
-        panel.classList.remove("active")
-      );
+  const stage = $("stage") || document.querySelector(".stage");
 
-      tab.classList.add("active");
+  if (!stage) return;
 
-      const panel = $("tab-" + tab.dataset.tab);
+  if (document.fullscreenElement) {
 
-      if (panel) {
-        panel.classList.add("active");
-      }
-    });
-  });
+    document.exitFullscreen();
+
+  } else if (stage.requestFullscreen) {
+
+    stage.requestFullscreen();
+
+  }
+
 }
+
 
 /* =========================================================
-   AI STORY ANALYSIS
-   ========================================================= */
-
-function bindAIControls() {
-  $("analyze").addEventListener("click", analyzeStory);
-  $("aiProduce").addEventListener("click", aiProduce);
-  $("apply").addEventListener("click", applyBroadcastLook);
-  $("findShots").addEventListener("click", findBestShots);
-}
+   STORY ANALYSIS
+========================================================= */
 
 function analyzeStory() {
-  const script = $("script").value.trim();
-  const headline =
-    $("headline").value.trim() || "Untitled story";
-  const location =
-    $("location").value.trim() || "Location not supplied";
 
-  if (!script) {
-    alert("Paste the news story script first.");
+  state.headline =
+    $("headline").value.trim();
+
+  state.presenter =
+    $("presenter").value.trim();
+
+  state.location =
+    $("location").value.trim();
+
+  state.script =
+    $("script").value.trim();
+
+  if (!state.script && !state.headline) {
+
+    alert(
+      "Enter a headline or story script before analysis."
+    );
+
     return;
+
   }
 
-  updateStatus("AI ANALYZING");
-  $("aiStatus").textContent = "Analyzing";
+  updateStatus("ANALYZING");
 
-  const words = script.split(/\s+/).filter(Boolean);
-  const wordCount = words.length;
+  const analysis =
+    createEditorialAnalysis();
 
-  const hasQuote =
-    /["“”]/.test(script) ||
-    /\b(said|says|according to|reported)\b/i.test(script);
-
-  const hasLocation =
-    /\b(in|at|from|near|across|within)\b/i.test(script);
-
-  const hasNumbers =
-    /\d/.test(script);
-
+  state.analysis = analysis;
   state.analyzed = true;
 
-  $("aiReport").innerHTML = `
-    <strong>AI DIRECTOR ANALYSIS</strong><br><br>
+  renderAnalysis(analysis);
 
-    <b>Story:</b> ${escapeHTML(headline)}<br>
-    <b>Location:</b> ${escapeHTML(location)}<br>
-    <b>Words:</b> ${wordCount}<br><br>
+  generateScenes(analysis);
 
-    <b>Editorial structure</b><br>
-    • Opening / presenter lead<br>
-    • Main story development<br>
-    • Supporting visual opportunity<br>
-    • Closing / transition<br><br>
+  $("aiStatus").textContent =
+    "Analyzed";
 
-    <b>Detected elements</b><br>
-    ${hasQuote ? "✓ Potential quote / attribution<br>" : ""}
-    ${hasLocation ? "✓ Location reference<br>" : ""}
-    ${hasNumbers ? "✓ Numerical information<br>" : ""}
-    ✓ Suitable for newsroom graphics<br>
-    ✓ Lower-third recommended<br>
-    ✓ Headline recommended<br>
-    ✓ Ticker recommended
-  `;
+  updateStatus("ANALYSIS COMPLETE");
 
-  $("aiStatus").textContent = "Analyzed";
-  updateStatus("AI ANALYSIS COMPLETE");
+  updateStatusCard();
 
-  generateScenes(script);
 }
 
-function generateScenes(script) {
-  const words = script.split(/\s+/).filter(Boolean);
+
+/* =========================================================
+   EDITORIAL ANALYSIS ENGINE
+========================================================= */
+
+function createEditorialAnalysis() {
+
+  const script =
+    state.script || "";
+
+  const headline =
+    state.headline ||
+    "UNTITLED NEWS STORY";
+
+  const words =
+    script
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+
+  const wordCount =
+    words.length;
+
+  let estimatedDuration =
+    Math.max(
+      15,
+      Math.round(wordCount / 2.4)
+    );
+
+  if (!script) {
+    estimatedDuration = 30;
+  }
+
+  const lower =
+    script.toLowerCase();
+
+  let category = "GENERAL";
+
+  if (
+    /school|education|student|teacher|exam|university|learning/
+      .test(lower)
+  ) {
+
+    category = "EDUCATION";
+
+  } else if (
+    /government|president|minister|county|parliament|politics/
+      .test(lower)
+  ) {
+
+    category = "POLITICS";
+
+  } else if (
+    /business|market|economy|money|trade|company/
+      .test(lower)
+  ) {
+
+    category = "BUSINESS";
+
+  } else if (
+    /football|sports|game|match|athlete|tournament/
+      .test(lower)
+  ) {
+
+    category = "SPORTS";
+
+  } else if (
+    /weather|rain|drought|flood|climate|temperature/
+      .test(lower)
+  ) {
+
+    category = "WEATHER";
+
+  } else if (
+    /health|hospital|doctor|disease|medical/
+      .test(lower)
+  ) {
+
+    category = "HEALTH";
+
+  }
+
+
+  let priority = "STANDARD";
+
+  if (
+    /breaking|urgent|alert|latest|emergency|developing/
+      .test(lower)
+  ) {
+
+    priority = "BREAKING";
+
+  }
+
+
+  const hasLocation =
+    Boolean(state.location);
+
+  const hasPresenter =
+    Boolean(state.presenter);
+
+  return {
+
+    headline,
+
+    category,
+
+    priority,
+
+    wordCount,
+
+    estimatedDuration,
+
+    hasLocation,
+
+    hasPresenter,
+
+    recommendedFormat:
+      priority === "BREAKING"
+        ? "BREAKING NEWS PACKAGE"
+        : "STANDARD NEWS PACKAGE",
+
+    editorialStructure: [
+      "OPEN",
+      "MAIN STORY",
+      "SUPPORTING VISUAL",
+      "DEVELOPMENT",
+      "CLOSE"
+    ]
+
+  };
+
+}
+
+
+/* =========================================================
+   DISPLAY ANALYSIS
+========================================================= */
+
+function renderAnalysis(analysis) {
+
+  const report = $("aiReport");
+
+  report.innerHTML = `
+
+    <strong>AI EDITORIAL ANALYSIS</strong>
+
+    <div class="analysisGrid">
+
+      <span>Category</span>
+      <b>${escapeHtml(analysis.category)}</b>
+
+      <span>Priority</span>
+      <b>${escapeHtml(analysis.priority)}</b>
+
+      <span>Words</span>
+      <b>${analysis.wordCount}</b>
+
+      <span>Estimated Duration</span>
+      <b>${formatTime(analysis.estimatedDuration)}</b>
+
+      <span>Format</span>
+      <b>${escapeHtml(analysis.recommendedFormat)}</b>
+
+    </div>
+
+    <p>
+      Editorial structure prepared for
+      professional news production.
+    </p>
+  `;
+
+}
+
+
+/* =========================================================
+   SCENE GENERATION
+========================================================= */
+
+function generateScenes(analysis) {
+
+  const duration =
+    analysis.estimatedDuration;
+
+  const openDuration =
+    Math.min(8, Math.max(4, Math.round(duration * 0.12)));
+
+  const mainDuration =
+    Math.round(duration * 0.30);
+
+  const supportDuration =
+    Math.round(duration * 0.24);
+
+  const developmentDuration =
+    Math.round(duration * 0.22);
+
+  const closeDuration =
+    Math.max(
+      4,
+      duration -
+      openDuration -
+      mainDuration -
+      supportDuration -
+      developmentDuration
+    );
+
 
   state.scenes = [
+
     {
-      name: "OPEN",
-      description: "Presenter introduction / headline",
-      duration: "00:00–00:08"
-    },
-    {
-      name: "MAIN STORY",
-      description: "Primary presenter delivery",
-      duration: "00:08–01:00"
-    },
-    {
-      name: "SUPPORTING VISUAL",
-      description: "B-roll / relevant supporting footage",
-      duration: "01:00–01:20"
-    },
-    {
-      name: "DEVELOPMENT",
+      type: "OPEN",
+      title: "OPEN",
+      duration: openDuration,
       description:
-        words.length > 120
-          ? "Extended story development"
-          : "Additional story information",
-      duration: "01:20–01:45"
+        "Presenter introduction and headline."
     },
+
     {
-      name: "CLOSE",
-      description: "Presenter closing / transition",
-      duration: "01:45–END"
+      type: "MAIN STORY",
+      title: "MAIN STORY",
+      duration: mainDuration,
+      description:
+        "Primary presenter delivery."
+    },
+
+    {
+      type: "SUPPORTING VISUAL",
+      title: "SUPPORTING VISUAL",
+      duration: supportDuration,
+      description:
+        "Recommended B-roll or supporting footage."
+    },
+
+    {
+      type: "DEVELOPMENT",
+      title: "DEVELOPMENT",
+      duration: developmentDuration,
+      description:
+        "Additional facts, context or visuals."
+    },
+
+    {
+      type: "CLOSE",
+      title: "CLOSE",
+      duration: closeDuration,
+      description:
+        "Presenter close and transition."
     }
+
   ];
 
   renderScenes();
+
 }
 
-function renderScenes() {
-  const container = $("sceneList");
-
-  container.innerHTML = "";
-
-  state.scenes.forEach((scene, index) => {
-    const element = document.createElement("div");
-
-    element.className = "scene";
-
-    element.innerHTML = `
-      <strong>${index + 1}. ${escapeHTML(scene.name)}</strong>
-      <small>${escapeHTML(scene.description)}</small><br>
-      <small>${escapeHTML(scene.duration)}</small>
-    `;
-
-    container.appendChild(element);
-  });
-}
 
 /* =========================================================
-   AI PRODUCER
-   ========================================================= */
+   SCENE LIST
+========================================================= */
 
-function aiProduce() {
-  if (!state.videoFile) {
-    alert("Import a presenter/news video before producing.");
+function renderScenes() {
+
+  const container =
+    $("sceneList");
+
+  if (!container) return;
+
+  if (!state.scenes.length) {
+
+    container.innerHTML = `
+      <div class="scene emptyScene">
+        AI scenes will appear here.
+      </div>
+    `;
+
     return;
+
   }
 
-  if (!$("script").value.trim()) {
-    alert("Add the story script before AI production.");
+  container.innerHTML =
+    state.scenes.map(
+      (scene, index) => `
+
+        <div
+          class="scene"
+          data-scene="${index}"
+        >
+
+          <div class="sceneNumber">
+            ${String(index + 1).padStart(2, "0")}
+          </div>
+
+          <div class="sceneContent">
+
+            <strong>
+              ${escapeHtml(scene.title)}
+            </strong>
+
+            <small>
+              ${escapeHtml(scene.description)}
+            </small>
+
+          </div>
+
+          <span class="sceneTime">
+            ${formatTime(scene.duration)}
+          </span>
+
+        </div>
+
+      `
+    ).join("");
+
+}
+
+
+/* =========================================================
+   AI PRODUCE
+========================================================= */
+
+function aiProduce() {
+
+  if (!state.mediaLoaded) {
+
+    alert(
+      "Import a news video before production."
+    );
+
     return;
+
+  }
+
+  if (!state.analyzed) {
+
+    analyzeStory();
+
   }
 
   updateStatus("AI PRODUCING");
-  $("aiStatus").textContent = "Producing";
 
-  if (!state.analyzed) {
-    analyzeStory();
-  }
+  applyBroadcastLook();
 
-  $("screenHeadline").value =
-    $("headline").value || "LATEST NEWS";
+  findBestShots();
 
-  $("lowerText").value =
-    $("presenter").value || "NEWS PRESENTER";
-
-  $("lowerTitle").value =
-    $("location").value || "NEWS";
-
-  createLowerThird();
-  createHeadline();
-  createTicker();
+  runBroadcastQC();
 
   state.produced = true;
 
-  setTimeout(() => {
-    $("aiStatus").textContent = "Produced";
-    updateStatus("BROADCAST READY");
+  $("aiStatus").textContent =
+    "Produced";
 
-    runBroadcastQC();
-  }, 700);
+  updateStatus("PRODUCTION READY");
+
+  updateStatusCard();
+
 }
+
 
 /* =========================================================
    BROADCAST LOOK
-   ========================================================= */
+========================================================= */
 
 function applyBroadcastLook() {
-  $("showLower").checked = true;
-  $("showHeadline").checked = true;
-  $("showTicker").checked = true;
 
-  $("gfxOpacity").value = "1";
+  if (!$("screenHeadline").value.trim()) {
 
-  if (!$("screenHeadline").value) {
     $("screenHeadline").value =
-      $("headline").value || "LATEST NEWS";
+      state.headline ||
+      "LATEST NEWS";
+
   }
 
-  if (!$("lowerText").value) {
+  if (!$("lowerText").value.trim()) {
+
     $("lowerText").value =
-      $("presenter").value || "NEWS PRESENTER";
+      state.presenter ||
+      "NEWS PRESENTER";
+
+  }
+
+  if (!$("lowerTitle").value.trim()) {
+
+    $("lowerTitle").value =
+      state.location ||
+      "NEWS";
+
   }
 
   updateGraphics();
+
+  applyTheme();
 
   updateStatus("BROADCAST LOOK APPLIED");
 
-  runBroadcastQC();
 }
+
+
+/* =========================================================
+   GRAPHICS
+========================================================= */
+
+function updateGraphics() {
+
+  const stage =
+    document.querySelector(".stage");
+
+  if (!stage) return;
+
+
+  stage
+    .querySelectorAll(
+      ".broadcast-lower-third," +
+      ".broadcast-headline," +
+      ".broadcast-ticker," +
+      ".broadcast-logo"
+    )
+    .forEach(element => element.remove());
+
+
+  const opacity =
+    state.graphicsOpacity;
+
+
+  /* LOGO */
+
+  if (
+    state.showLogo &&
+    state.logoUrl
+  ) {
+
+    const logo =
+      document.createElement("img");
+
+    logo.className =
+      "broadcast-logo";
+
+    logo.src =
+      state.logoUrl;
+
+    logo.style.opacity =
+      state.logoOpacity;
+
+    logo.alt =
+      "Broadcast logo";
+
+    stage.appendChild(logo);
+
+  }
+
+
+  /* HEADLINE */
+
+  if (state.showHeadline) {
+
+    const headline =
+      document.createElement("div");
+
+    headline.className =
+      "broadcast-headline";
+
+    headline.style.opacity =
+      opacity;
+
+    headline.textContent =
+      $("screenHeadline")?.value ||
+      state.headline ||
+      "LATEST NEWS";
+
+    stage.appendChild(headline);
+
+  }
+
+
+  /* LOWER THIRD */
+
+  if (state.showLower) {
+
+    const lower =
+      document.createElement("div");
+
+    lower.className =
+      "broadcast-lower-third";
+
+    lower.style.opacity =
+      opacity;
+
+    const title =
+      $("lowerTitle")?.value ||
+      "NEWS";
+
+    const name =
+      $("lowerText")?.value ||
+      "NEWS PRESENTER";
+
+    lower.innerHTML = `
+
+      <div class="lowerTitle">
+        ${escapeHtml(title)}
+      </div>
+
+      <div class="lowerName">
+        ${escapeHtml(name)}
+      </div>
+
+    `;
+
+    stage.appendChild(lower);
+
+  }
+
+
+  /* TICKER */
+
+  if (state.showTicker) {
+
+    const ticker =
+      document.createElement("div");
+
+    ticker.className =
+      "broadcast-ticker";
+
+    ticker.style.opacity =
+      opacity;
+
+    ticker.innerHTML = `
+
+      <span>
+        ${escapeHtml(
+          $("ticker")?.value ||
+          "LATEST NEWS"
+        )}
+      </span>
+
+    `;
+
+    stage.appendChild(ticker);
+
+  }
+
+}
+
 
 /* =========================================================
    BEST SHOTS
-   ========================================================= */
+========================================================= */
 
 function findBestShots() {
-  if (!state.videoFile) {
-    alert("Import a video first.");
+
+  if (!state.mediaLoaded) {
+
+    alert(
+      "Import a video first."
+    );
+
     return;
+
   }
 
-  const video = $("video");
+  const video =
+    $("video");
 
-  const duration = video.duration || 0;
+  const duration =
+    video.duration || 60;
 
-  if (!duration) {
-    alert("Video information is not ready yet.");
-    return;
-  }
+  const shots = [
 
-  state.scenes = [
     {
-      name: "BEST OPEN",
-      description: "Beginning of presenter footage",
-      duration: `00:00–${formatTime(Math.min(8, duration))}`
+      label: "OPENING SHOT",
+      start: 0,
+      end: Math.min(8, duration)
     },
+
     {
-      name: "PRIMARY SHOT",
-      description: "Main presenter shot",
-      duration: `${formatTime(Math.min(8, duration))}–${formatTime(
-        Math.min(35, duration)
-      )}`
+      label: "MAIN PRESENTER",
+      start: Math.min(8, duration),
+      end: Math.min(25, duration)
     },
+
     {
-      name: "MID STORY",
-      description: "Potential supporting segment",
-      duration: `${formatTime(Math.min(35, duration))}–${formatTime(
-        Math.min(65, duration)
-      )}`
+      label: "SUPPORTING SHOT",
+      start: Math.min(25, duration),
+      end: Math.min(40, duration)
     },
+
     {
-      name: "CLOSING",
-      description: "Final usable presenter section",
-      duration: `${formatTime(Math.max(0, duration - 15))}–${formatTime(
-        duration
-      )}`
+      label: "DEVELOPMENT SHOT",
+      start: Math.min(40, duration),
+      end: Math.min(55, duration)
+    },
+
+    {
+      label: "CLOSING SHOT",
+      start: Math.max(0, duration - 8),
+      end: duration
     }
+
   ];
+
+
+  state.scenes =
+    shots.map((shot, index) => ({
+
+      type:
+        shot.label,
+
+      title:
+        shot.label,
+
+      duration:
+        Math.max(
+          1,
+          shot.end - shot.start
+        ),
+
+      start:
+        shot.start,
+
+      end:
+        shot.end,
+
+      description:
+        `Suggested source segment ${formatTime(shot.start)} – ${formatTime(shot.end)}.`
+
+    }));
+
 
   renderScenes();
 
-  updateStatus("BEST SHOTS IDENTIFIED");
+  updateStatus("BEST SHOTS FOUND");
+
 }
+
 
 /* =========================================================
    BROADCAST QC
-   ========================================================= */
+========================================================= */
 
 function runBroadcastQC() {
-  const report = $("qcReport");
 
   const checks = [];
 
-  checks.push({
-    title: "VIDEO",
-    value: state.videoFile ? "PASS" : "FAIL",
-    type: state.videoFile ? "good" : "bad"
-  });
+  const video =
+    $("video");
 
   checks.push({
-    title: "HEADLINE",
-    value: $("screenHeadline").value ? "PASS" : "WARNING",
-    type: $("screenHeadline").value ? "good" : "warning"
-  });
 
-  checks.push({
-    title: "LOWER THIRD",
-    value: $("showLower").checked ? "PASS" : "OFF",
-    type: $("showLower").checked ? "good" : "warning"
-  });
-
-  checks.push({
-    title: "TICKER",
-    value: $("showTicker").checked ? "PASS" : "OFF",
-    type: $("showTicker").checked ? "good" : "warning"
-  });
-
-  checks.push({
-    title: "SCRIPT",
-    value: $("script").value.trim() ? "PASS" : "FAIL",
-    type: $("script").value.trim() ? "good" : "bad"
-  });
-
-  checks.push({
-    title: "PRESENTER",
-    value: $("presenter").value.trim()
-      ? "PASS"
-      : "OPTIONAL",
-    type: $("presenter").value.trim()
-      ? "good"
-      : "warning"
-  });
-
-  report.innerHTML = checks
-    .map(
-      (check) => `
-        <div class="qcItem ${check.type}">
-          <strong>${check.title}</strong><br>
-          ${check.value}
-        </div>
-      `
+    name: "Video imported",
+    pass: Boolean(
+      state.mediaLoaded
     )
-    .join("");
 
-  const failed = checks.filter(
-    (check) => check.type === "bad"
-  ).length;
+  });
+
+
+  checks.push({
+
+    name: "Headline available",
+    pass: Boolean(
+      state.headline ||
+      $("screenHeadline")?.value.trim()
+    )
+
+  });
+
+
+  checks.push({
+
+    name: "Presenter identified",
+    pass: Boolean(
+      state.presenter ||
+      $("lowerText")?.value.trim()
+    )
+
+  });
+
+
+  checks.push({
+
+    name: "Broadcast graphics",
+    pass:
+      state.showLower ||
+      state.showHeadline ||
+      state.showTicker
+
+  });
+
+
+  checks.push({
+
+    name: "Video duration",
+    pass:
+      Boolean(
+        video.duration &&
+        video.duration > 0
+      )
+
+  });
+
+
+  checks.push({
+
+    name: "Editorial structure",
+    pass:
+      state.scenes.length >= 3
+
+  });
+
+
+  const passed =
+    checks.filter(
+      check => check.pass
+    ).length;
+
+
+  state.qcPassed =
+    passed === checks.length;
+
+
+  const qc =
+    $("qcReport");
+
+  qc.innerHTML = `
+
+    <h3>
+      BROADCAST QUALITY CONTROL
+    </h3>
+
+    <div class="qcSummary">
+
+      <strong>
+        ${passed}/${checks.length}
+        checks passed
+      </strong>
+
+      <span>
+        ${
+          state.qcPassed
+            ? "READY FOR FINAL REVIEW"
+            : "ATTENTION REQUIRED"
+        }
+      </span>
+
+    </div>
+
+    ${checks.map(
+      check => `
+
+        <div class="qcRow">
+
+          <span>
+            ${escapeHtml(check.name)}
+          </span>
+
+          <b class="${
+            check.pass
+              ? "qcPass"
+              : "qcFail"
+          }">
+
+            ${
+              check.pass
+                ? "PASS"
+                : "CHECK"
+            }
+
+          </b>
+
+        </div>
+
+      `
+    ).join("")}
+
+  `;
+
 
   $("qcStatus").textContent =
-    failed > 0 ? `${failed} issue(s)` : "Passed";
+    state.qcPassed
+      ? "Passed"
+      : "Review";
 
-  if (failed === 0) {
-    updateStatus("QC PASSED");
-  }
+  updateStatusCard();
+
 }
+
 
 /* =========================================================
-   PROJECT SAVE
-   ========================================================= */
+   TABS
+========================================================= */
 
-function bindProjectControls() {
-  $("save").addEventListener("click", saveProject);
-  $("reset").addEventListener("click", resetEdits);
-  $("record").addEventListener("click", exportBroadcast);
-}
+function switchTab(tabName) {
 
-function saveProject() {
-  const project = {
-    projectName: state.projectName,
+  document
+    .querySelectorAll(".tab")
+    .forEach(tab => {
 
-    story: {
-      headline: $("headline").value,
-      presenter: $("presenter").value,
-      location: $("location").value,
-      script: $("script").value
-    },
+      tab.classList.toggle(
+        "active",
+        tab.dataset.tab === tabName
+      );
 
-    graphics: {
-      lowerText: $("lowerText").value,
-      lowerTitle: $("lowerTitle").value,
-      headline: $("screenHeadline").value,
-      ticker: $("ticker").value,
-      theme: $("theme").value,
-      opacity: $("gfxOpacity").value,
-      logoOpacity: $("logoOpacity").value,
-      showLower: $("showLower").checked,
-      showHeadline: $("showHeadline").checked,
-      showTicker: $("showTicker").checked,
-      showLogo: $("showLogo").checked
-    },
-
-    scenes: state.scenes,
-
-    createdAt: new Date().toISOString()
-  };
-
-  const blob = new Blob(
-    [JSON.stringify(project, null, 2)],
-    { type: "application/json" }
-  );
-
-  downloadBlob(
-    blob,
-    `${safeFilename(state.projectName)}.json`
-  );
-
-  updateStatus("PROJECT SAVED");
-}
-
-/* =========================================================
-   RESET
-   ========================================================= */
-
-function resetEdits() {
-  const confirmed = confirm(
-    "Reset graphics and story edits?"
-  );
-
-  if (!confirmed) return;
-
-  $("lowerText").value = "NEWS PRESENTER";
-  $("lowerTitle").value = "NEWS";
-  $("screenHeadline").value = "";
-  $("ticker").value =
-    "LATEST NEWS • EDUCATION • COMMUNITY • SPORTS • WEATHER";
-
-  $("gfxOpacity").value = "1";
-  $("logoOpacity").value = ".9";
-
-  $("showLower").checked = true;
-  $("showHeadline").checked = true;
-  $("showTicker").checked = true;
-  $("showLogo").checked = true;
-
-  updateGraphics();
-
-  state.analyzed = false;
-  state.produced = false;
-
-  $("aiStatus").textContent = "Idle";
-  $("qcStatus").textContent = "Not checked";
-
-  $("aiReport").textContent =
-    "AI Director waiting for a story.";
-
-  $("sceneList").innerHTML = "";
-
-  updateStatus("EDITS RESET");
-}
-
-/* =========================================================
-   EXPORT
-   ========================================================= */
-
-async function exportBroadcast() {
-  const video = $("video");
-
-  if (!state.videoFile || !video.src) {
-    alert("Import a video before exporting.");
-    return;
-  }
-
-  /*
-    Browser export uses MediaRecorder.
-    The source video is recorded together with the
-    graphics canvas when supported by the browser.
-  */
-
-  if (!window.MediaRecorder) {
-    alert(
-      "This browser does not support direct browser recording. " +
-      "Use the broadcast preview with a screen recorder."
-    );
-    return;
-  }
-
-  updateStatus("PREPARING EXPORT");
-
-  const canvas = document.createElement("canvas");
-  const width = video.videoWidth || 1280;
-  const height = video.videoHeight || 720;
-
-  canvas.width = width;
-  canvas.height = height;
-
-  const ctx = canvas.getContext("2d");
-
-  const stream = canvas.captureStream(30);
-
-  const recorder = new MediaRecorder(stream, {
-    mimeType: getSupportedMimeType()
-  });
-
-  const chunks = [];
-
-  recorder.ondataavailable = (event) => {
-    if (event.data.size > 0) {
-      chunks.push(event.data);
-    }
-  };
-
-  recorder.onstop = () => {
-    const blob = new Blob(chunks, {
-      type: recorder.mimeType
     });
 
-    downloadBlob(
-      blob,
-      `${safeFilename(state.projectName)}-broadcast.webm`
-    );
 
-    updateStatus("EXPORT COMPLETE");
+  document
+    .querySelectorAll(".tabPanel")
+    .forEach(panel => {
+
+      panel.classList.toggle(
+        "active",
+        panel.id ===
+        `tab-${tabName}`
+      );
+
+    });
+
+}
+
+
+/* =========================================================
+   THEME
+========================================================= */
+
+function applyTheme() {
+
+  document.body.dataset.theme =
+    state.theme;
+
+}
+
+
+/* =========================================================
+   SAVE PROJECT
+========================================================= */
+
+function saveProject() {
+
+  const project = {
+
+    application:
+      "AI Newsroom Studio",
+
+    version:
+      "1.0",
+
+    savedAt:
+      new Date().toISOString(),
+
+    projectName:
+      state.projectName,
+
+    videoName:
+      state.videoName,
+
+    logoName:
+      state.logoName,
+
+    headline:
+      state.headline,
+
+    presenter:
+      state.presenter,
+
+    location:
+      state.location,
+
+    script:
+      state.script,
+
+    scenes:
+      state.scenes,
+
+    analysis:
+      state.analysis,
+
+    graphics: {
+
+      lowerText:
+        $("lowerText")?.value || "",
+
+      lowerTitle:
+        $("lowerTitle")?.value || "",
+
+      screenHeadline:
+        $("screenHeadline")?.value || "",
+
+      ticker:
+        $("ticker")?.value || ""
+
+    },
+
+    settings: {
+
+      theme:
+        state.theme,
+
+      graphicsOpacity:
+        state.graphicsOpacity,
+
+      logoOpacity:
+        state.logoOpacity,
+
+      showLower:
+        state.showLower,
+
+      showHeadline:
+        state.showHeadline,
+
+      showTicker:
+        state.showTicker,
+
+      showLogo:
+        state.showLogo
+
+    }
+
   };
 
-  const drawFrame = () => {
-    if (video.paused || video.ended) {
-      if (recorder.state === "recording") {
-        recorder.stop();
+
+  const blob =
+    new Blob(
+      [
+        JSON.stringify(
+          project,
+          null,
+          2
+        )
+      ],
+      {
+        type:
+          "application/json"
       }
-
-      return;
-    }
-
-    ctx.drawImage(video, 0, 0, width, height);
-
-    drawCanvasGraphics(ctx, width, height);
-
-    requestAnimationFrame(drawFrame);
-  };
-
-  video.currentTime = 0;
-
-  recorder.start();
-
-  video.play();
-
-  drawFrame();
-
-  video.onended = () => {
-    if (recorder.state === "recording") {
-      recorder.stop();
-    }
-  };
-}
-
-/* =========================================================
-   CANVAS BROADCAST GRAPHICS
-   ========================================================= */
-
-function drawCanvasGraphics(ctx, width, height) {
-  const scale = width / 1280;
-
-  ctx.save();
-
-  ctx.globalAlpha = Number($("gfxOpacity").value);
-
-  if ($("showLower").checked) {
-    const x = width * 0.05;
-    const y = height * 0.78;
-
-    ctx.fillStyle = "#087fc7";
-
-    ctx.fillRect(
-      x,
-      y,
-      width * 0.58,
-      48 * scale
     );
 
-    ctx.fillStyle = "#ffffff";
-    ctx.font = `bold ${22 * scale}px Arial`;
 
-    ctx.fillText(
-      $("lowerText").value || "NEWS PRESENTER",
-      x + 18 * scale,
-      y + 31 * scale
-    );
+  const url =
+    URL.createObjectURL(blob);
 
-    ctx.fillStyle = "rgba(5,17,30,.94)";
-
-    ctx.fillRect(
-      x,
-      y + 48 * scale,
-      width * 0.58,
-      30 * scale
-    );
-
-    ctx.fillStyle = "#c7d9e8";
-    ctx.font = `${14 * scale}px Arial`;
-
-    ctx.fillText(
-      $("lowerTitle").value || "NEWS",
-      x + 18 * scale,
-      y + 20 * scale + 48 * scale
-    );
-  }
-
-  if ($("showHeadline").checked) {
-    const x = width * 0.05;
-    const y = height * 0.89;
-
-    ctx.fillStyle = "rgba(5,15,27,.94)";
-
-    ctx.fillRect(
-      x,
-      y,
-      width * 0.9,
-      43 * scale
-    );
-
-    ctx.fillStyle = "#d9aa3d";
-
-    ctx.fillRect(
-      x,
-      y,
-      5 * scale,
-      43 * scale
-    );
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = `bold ${22 * scale}px Arial`;
-
-    ctx.fillText(
-      $("screenHeadline").value ||
-        $("headline").value ||
-        "LATEST NEWS",
-      x + 15 * scale,
-      y + 29 * scale
-    );
-  }
-
-  if ($("showTicker").checked) {
-    const y = height - 27 * scale;
-
-    ctx.fillStyle = "#071525";
-
-    ctx.fillRect(
-      0,
-      y,
-      width,
-      27 * scale
-    );
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = `${13 * scale}px Arial`;
-
-    ctx.fillText(
-      $("ticker").value ||
-        "LATEST NEWS • EDUCATION • COMMUNITY • SPORTS • WEATHER",
-      15 * scale,
-      y + 18 * scale
-    );
-  }
-
-  ctx.restore();
-}
-
-/* =========================================================
-   UTILITIES
-   ========================================================= */
-
-function updateStatus(message) {
-  $("status").textContent = message;
-}
-
-function updateClockDisplay() {
-  $("current").textContent = "00:00";
-  $("duration").textContent = "00:00";
-}
-
-function formatTime(seconds) {
-  if (!Number.isFinite(seconds)) {
-    return "00:00";
-  }
-
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-
-  return `${String(mins).padStart(2, "0")}:${String(
-    secs
-  ).padStart(2, "0")}`;
-}
-
-function safeFilename(name) {
-  return (
-    name
-      .replace(/[^a-z0-9-_ ]/gi, "")
-      .trim()
-      .replace(/\s+/g, "-")
-      .toLowerCase() ||
-    "news-broadcast"
-  );
-}
-
-function downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-
-  const link = document.createElement("a");
+  const link =
+    document.createElement("a");
 
   link.href = url;
-  link.download = filename;
+
+  link.download =
+    `${safeFilename(
+      state.projectName
+    )}.json`;
 
   document.body.appendChild(link);
 
@@ -1080,30 +1472,637 @@ function downloadBlob(blob, filename) {
 
   link.remove();
 
-  setTimeout(() => {
-    URL.revokeObjectURL(url);
-  }, 1000);
+  URL.revokeObjectURL(url);
+
+  updateStatus("PROJECT SAVED");
+
 }
 
-function getSupportedMimeType() {
-  const types = [
-    "video/webm;codecs=vp9",
-    "video/webm;codecs=vp8",
-    "video/webm"
-  ];
+
+/* =========================================================
+   RESET
+========================================================= */
+
+function resetEdits() {
+
+  $("lowerText").value =
+    "NEWS PRESENTER";
+
+  $("lowerTitle").value =
+    "NEWS";
+
+  $("screenHeadline").value =
+    state.headline || "";
+
+  $("ticker").value =
+    "LATEST NEWS • EDUCATION • COMMUNITY • SPORTS • WEATHER";
+
+  $("gfxOpacity").value =
+    1;
+
+  $("logoOpacity").value =
+    .9;
+
+  $("showLower").checked =
+    true;
+
+  $("showHeadline").checked =
+    true;
+
+  $("showTicker").checked =
+    true;
+
+  $("showLogo").checked =
+    true;
+
+  state.graphicsOpacity = 1;
+  state.logoOpacity = .9;
+
+  state.showLower = true;
+  state.showHeadline = true;
+  state.showTicker = true;
+  state.showLogo = true;
+
+  updateGraphics();
+
+  applyTheme();
+
+  updateStatus("EDITS RESET");
+
+}
+
+
+/* =========================================================
+   EXPORT BROADCAST
+========================================================= */
+
+async function exportBroadcast() {
+
+  const video =
+    $("video");
+
+  if (!video.src) {
+
+    alert(
+      "Import a video before exporting."
+    );
+
+    return;
+
+  }
+
+
+  /*
+    Browser export is a preview/export function.
+    A future server-side FFmpeg renderer will create
+    the professional final MP4 master with full audio,
+    graphics, transitions and scene composition.
+  */
+
+  updateStatus("EXPORTING");
+
+  const canvas =
+    document.createElement("canvas");
+
+  canvas.width =
+    video.videoWidth ||
+    1280;
+
+  canvas.height =
+    video.videoHeight ||
+    720;
+
+  const ctx =
+    canvas.getContext("2d");
+
+
+  const stream =
+    canvas.captureStream(30);
+
+
+  let recorder;
+
+  try {
+
+    recorder =
+      new MediaRecorder(
+        stream,
+        {
+          mimeType:
+            "video/webm;codecs=vp9"
+        }
+      );
+
+  } catch {
+
+    recorder =
+      new MediaRecorder(stream);
+
+  }
+
+
+  const chunks = [];
+
+  recorder.ondataavailable =
+    event => {
+
+      if (event.data.size) {
+        chunks.push(event.data);
+      }
+
+    };
+
+
+  recorder.onstop = () => {
+
+    const blob =
+      new Blob(
+        chunks,
+        {
+          type:
+            "video/webm"
+        }
+      );
+
+    const url =
+      URL.createObjectURL(blob);
+
+    const link =
+      document.createElement("a");
+
+    link.href = url;
+
+    link.download =
+      `${safeFilename(
+        state.projectName
+      )}-preview.webm`;
+
+    document.body.appendChild(link);
+
+    link.click();
+
+    link.remove();
+
+    URL.revokeObjectURL(url);
+
+    updateStatus(
+      "EXPORT COMPLETE"
+    );
+
+  };
+
+
+  const wasPlaying =
+    !video.paused;
+
+
+  video.currentTime = 0;
+
+
+  const drawFrame = () => {
+
+    if (video.ended) {
+
+      recorder.stop();
+
+      return;
+
+    }
+
+
+    ctx.drawImage(
+      video,
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
+
+
+    drawExportGraphics(
+      ctx,
+      canvas.width,
+      canvas.height
+    );
+
+
+    requestAnimationFrame(
+      drawFrame
+    );
+
+  };
+
+
+  recorder.start();
+
+  video.play();
+
+  drawFrame();
+
+
+  const stopWhenEnded =
+    () => {
+
+      if (video.ended) {
+
+        if (
+          recorder.state !==
+          "inactive"
+        ) {
+
+          recorder.stop();
+
+        }
+
+        video.removeEventListener(
+          "ended",
+          stopWhenEnded
+        );
+
+        if (!wasPlaying) {
+          video.pause();
+        }
+
+      }
+
+    };
+
+
+  video.addEventListener(
+    "ended",
+    stopWhenEnded
+  );
+
+}
+
+
+/* =========================================================
+   EXPORT GRAPHICS
+========================================================= */
+
+function drawExportGraphics(
+  ctx,
+  width,
+  height
+) {
+
+  const opacity =
+    state.graphicsOpacity;
+
+
+  /* HEADLINE */
+
+  if (state.showHeadline) {
+
+    const headline =
+      $("screenHeadline")?.value ||
+      state.headline ||
+      "LATEST NEWS";
+
+    ctx.save();
+
+    ctx.globalAlpha =
+      opacity;
+
+    ctx.fillStyle =
+      "rgba(5,20,45,.88)";
+
+    ctx.fillRect(
+      0,
+      0,
+      width,
+      Math.round(height * .13)
+    );
+
+    ctx.fillStyle =
+      "#ffffff";
+
+    ctx.font =
+      `bold ${Math.max(
+        22,
+        width * .025
+      )}px Arial`;
+
+    ctx.fillText(
+      headline,
+      width * .035,
+      height * .08
+    );
+
+    ctx.restore();
+
+  }
+
+
+  /* LOWER THIRD */
+
+  if (state.showLower) {
+
+    const title =
+      $("lowerTitle")?.value ||
+      "NEWS";
+
+    const name =
+      $("lowerText")?.value ||
+      "NEWS PRESENTER";
+
+
+    const x = 0;
+
+    const y =
+      height * .70;
+
+    const w =
+      width * .55;
+
+    const h =
+      height * .14;
+
+
+    ctx.save();
+
+    ctx.globalAlpha =
+      opacity;
+
+    ctx.fillStyle =
+      "rgba(4,20,42,.94)";
+
+    ctx.fillRect(
+      x,
+      y,
+      w,
+      h
+    );
+
+
+    ctx.fillStyle =
+      "#61b9ff";
+
+    ctx.fillRect(
+      x,
+      y,
+      width * .008,
+      h
+    );
+
+
+    ctx.fillStyle =
+      "#ffffff";
+
+    ctx.font =
+      `bold ${Math.max(
+        18,
+        width * .018
+      )}px Arial`;
+
+    ctx.fillText(
+      name,
+      width * .025,
+      y + h * .58
+    );
+
+
+    ctx.fillStyle =
+      "#61b9ff";
+
+    ctx.font =
+      `${Math.max(
+        13,
+        width * .012
+      )}px Arial`;
+
+    ctx.fillText(
+      title,
+      width * .025,
+      y + h * .30
+    );
+
+
+    ctx.restore();
+
+  }
+
+
+  /* TICKER */
+
+  if (state.showTicker) {
+
+    const ticker =
+      $("ticker")?.value ||
+      "LATEST NEWS";
+
+
+    ctx.save();
+
+    ctx.globalAlpha =
+      opacity;
+
+    ctx.fillStyle =
+      "rgba(2,12,28,.96)";
+
+    ctx.fillRect(
+      0,
+      height * .92,
+      width,
+      height * .08
+    );
+
+
+    ctx.fillStyle =
+      "#ffffff";
+
+    ctx.font =
+      `bold ${Math.max(
+        14,
+        width * .014
+      )}px Arial`;
+
+    ctx.fillText(
+      ticker,
+      width * .025,
+      height * .97
+    );
+
+
+    ctx.restore();
+
+  }
+
+}
+
+
+/* =========================================================
+   STATUS
+========================================================= */
+
+function updateStatus(text) {
+
+  if ($("status")) {
+
+    $("status").textContent =
+      text;
+
+  }
+
+}
+
+
+function updateProjectName() {
+
+  if ($("projectName")) {
+
+    $("projectName").textContent =
+      state.projectName;
+
+  }
+
+}
+
+
+function updateStatusCard() {
+
+  if (!$("mediaStatus")) return;
+
+  $("mediaStatus").textContent =
+    state.mediaLoaded
+      ? "Loaded"
+      : "Waiting";
+
+  $("aiStatus").textContent =
+    state.produced
+      ? "Produced"
+      : state.analyzed
+        ? "Analyzed"
+        : "Idle";
+
+  $("qcStatus").textContent =
+    state.qcPassed
+      ? "Passed"
+      : "Not checked";
+
+}
+
+
+/* =========================================================
+   UTILITIES
+========================================================= */
+
+function formatTime(seconds) {
+
+  if (!Number.isFinite(seconds)) {
+    return "00:00";
+  }
+
+  seconds =
+    Math.max(
+      0,
+      Math.floor(seconds)
+    );
+
+  const hours =
+    Math.floor(seconds / 3600);
+
+  const minutes =
+    Math.floor(
+      (seconds % 3600) / 60
+    );
+
+  const secs =
+    seconds % 60;
+
+
+  if (hours > 0) {
+
+    return [
+      String(hours).padStart(2, "0"),
+      String(minutes).padStart(2, "0"),
+      String(secs).padStart(2, "0")
+    ].join(":");
+
+  }
+
+
+  return [
+    String(minutes).padStart(2, "0"),
+    String(secs).padStart(2, "0")
+  ].join(":");
+
+}
+
+
+function formatBytes(bytes) {
+
+  if (!bytes) return "0 Bytes";
+
+  const units =
+    [
+      "Bytes",
+      "KB",
+      "MB",
+      "GB"
+    ];
+
+  const index =
+    Math.floor(
+      Math.log(bytes) /
+      Math.log(1024)
+    );
 
   return (
-    types.find((type) =>
-      MediaRecorder.isTypeSupported(type)
-    ) || "video/webm"
+    parseFloat(
+      (
+        bytes /
+        Math.pow(1024, index)
+      ).toFixed(2)
+    ) +
+    " " +
+    units[index]
   );
+
 }
 
-function escapeHTML(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+
+function safeFilename(name) {
+
+  return (
+    name
+      .replace(
+        /[^a-z0-9_\-]+/gi,
+        "_"
+      )
+      .replace(
+        /^_+|_+$/g,
+        ""
+      ) ||
+    "news-bulletin"
+  );
+
 }
+
+
+function escapeHtml(value) {
+
+  return String(value ?? "")
+    .replace(
+      /&/g,
+      "&amp;"
+    )
+    .replace(
+      /</g,
+      "&lt;"
+    )
+    .replace(
+      />/g,
+      "&gt;"
+    )
+    .replace(
+      /"/g,
+      "&quot;"
+    )
+    .replace(
+      /'/g,
+      "&#039;"
+    );
+
+}
+```
